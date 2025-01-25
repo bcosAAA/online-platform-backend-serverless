@@ -1,11 +1,13 @@
 {
   "type": "module",
-"scripts": {
-  "deploy": "wrangler deploy",
-  "dev": "wrangler dev"
-},
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc",
+    "start": "node dist/app.js"
+  },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20250124.3",
+    "@hono/node-server": "^1.13.7",
     "@sendgrid/mail": "^8.1.4",
     "@supabase/supabase-js": "^2.48.1",
     "bcrypt": "^5.1.1",
@@ -17,7 +19,8 @@
     "hono": "^4.6.18",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.16",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "serverless-http": "^3.2.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

@@ -1,21 +1,15 @@
-import { Hono, Context } from 'hono'; // Import Context from Hono
+import { Hono, Context } from 'hono';
 import { cors } from 'hono/cors';
 import { createClient } from '@supabase/supabase-js';
 import { OAuth2Client } from 'google-auth-library';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import sgMail from '@sendgrid/mail'; // Import SendGrid
+import sgMail from '@sendgrid/mail';
+import dotenv from 'dotenv';
 
-export interface Env {
-  SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
-  JWT_SECRET: string;
-  GOOGLE_OAUTH_CLIENT_ID: string;
-  GOOGLE_OAUTH_CLIENT_SECRET: string;
-  SENDGRID_API_KEY: string; // SendGrid API key
-  SENDGRID_FROM_EMAIL: string; // Sender email address
-}
+// Load environment variables from .env file
+dotenv.config();
 
 // Define a custom User type
 type User = {
@@ -30,40 +24,39 @@ type Variables = {
 
 // Extend the Hono Context type with your custom Variables
 type AppContext = Context<{
-  Bindings: Env;
   Variables: Variables;
 }>;
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+const app = new Hono<{ Variables: Variables }>();
 
 // In-memory reset token storage (replace with KV in production)
 const resetTokens = new Map();
 
 // Configure Supabase and Google OAuth clients
-const getSupabase = (env: Env) => createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
-const getGoogleClient = (env: Env) => new OAuth2Client({
-  clientId: env.GOOGLE_OAUTH_CLIENT_ID,
-  clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+const googleClient = new OAuth2Client({
+  clientId: process.env.GOOGLE_OAUTH_CLIENT_ID!,
+  clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
 });
 
 // Utility function to generate JWT
-const generateToken = (user: User, secret: string) => 
-  jwt.sign({ id: user.id, email: user.email }, secret, { expiresIn: '24h' });
+const generateToken = (user: User) => 
+  jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '24h' });
 
 // Utility function to send email using SendGrid
-const sendEmail = async (env: Env, to: string, subject: string, text: string) => {
-  sgMail.setApiKey(env.SENDGRID_API_KEY); // Set SendGrid API key
+const sendEmail = async (to: string, subject: string, text: string) => {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
   const msg = {
-    to, // Recipient email
-    from: env.SENDGRID_FROM_EMAIL, // Sender email
-    subject, // Email subject
-    text, // Email body (plain text)
+    to,
+    from: process.env.SENDGRID_FROM_EMAIL!,
+    subject,
+    text,
   };
 
   try {
-    await sgMail.send(msg); // Send the email
-    console.log('Email sent successfully');
+    await sgMail.send(msg);
+    console.log('Email sent successfully to:', to);
   } catch (error) {
     console.error('Error sending email:', error);
     throw new Error('Failed to send email');
@@ -82,11 +75,12 @@ app.post('/register', async (c: AppContext) => {
     newsletterSubscription 
   } = await c.req.json();
 
-  const supabase = getSupabase(c.env);
+  console.log('Register request received for email:', email);
 
   try {
     // Hash the password before storing it
     const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('Password hashed successfully');
     
     // Insert the new user into the database
     const { data, error } = await supabase
@@ -102,14 +96,22 @@ app.post('/register', async (c: AppContext) => {
       }])
       .select('*');
 
-    if (error) return c.json({ error: error.message }, 400);
-    if (!data || data.length === 0) return c.json({ error: 'Failed to retrieve inserted user' }, 500);
+    if (error) {
+      console.error('Error inserting user:', error.message);
+      return c.json({ error: error.message }, 400);
+    }
+    if (!data || data.length === 0) {
+      console.error('Failed to retrieve inserted user');
+      return c.json({ error: 'Failed to retrieve inserted user' }, 500);
+    }
 
+    console.log('User registered successfully:', data[0].email);
     return c.json({ 
       message: 'User registered successfully', 
       data: data[0] 
     }, 201);
   } catch (error) {
+    console.error('Internal server error during registration:', error);
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
@@ -117,7 +119,7 @@ app.post('/register', async (c: AppContext) => {
 // Login route
 app.post('/login', async (c: AppContext) => {
   const { email, password } = await c.req.json();
-  const supabase = getSupabase(c.env);
+  console.log('Login request received for email:', email);
 
   try {
     // Fetch the user from the database
@@ -126,17 +128,27 @@ app.post('/login', async (c: AppContext) => {
       .select('*')
       .eq('email', email);
 
-    if (error) return c.json({ error: error.message }, 400);
-    if (!users || users.length === 0) return c.json({ error: 'User not found' }, 404);
+    if (error) {
+      console.error('Error fetching user:', error.message);
+      return c.json({ error: error.message }, 400);
+    }
+    if (!users || users.length === 0) {
+      console.error('User not found:', email);
+      return c.json({ error: 'User not found' }, 404);
+    }
 
     const user = users[0];
     // Compare the provided password with the hashed password
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
-    if (!isPasswordValid) return c.json({ error: 'Invalid password' }, 401);
+    if (!isPasswordValid) {
+      console.error('Invalid password for user:', email);
+      return c.json({ error: 'Invalid password' }, 401);
+    }
 
     // Generate a JWT for the authenticated user
-    const token = generateToken(user, c.env.JWT_SECRET);
+    const token = generateToken(user);
+    console.log('Login successful for user:', email);
 
     return c.json({
       message: 'Login successful',
@@ -144,6 +156,7 @@ app.post('/login', async (c: AppContext) => {
       token,
     });
   } catch (error) {
+    console.error('Internal server error during login:', error);
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
@@ -151,20 +164,23 @@ app.post('/login', async (c: AppContext) => {
 // Google OAuth login
 app.post('/google', async (c: AppContext) => {
   const { credential } = await c.req.json();
-  const supabase = getSupabase(c.env);
-  const googleClient = getGoogleClient(c.env);
+  console.log('Google OAuth request received');
 
   try {
     // Verify the Google ID token
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: c.env.GOOGLE_OAUTH_CLIENT_ID,
+      audience: process.env.GOOGLE_OAUTH_CLIENT_ID!,
     });
 
     const payload = ticket.getPayload();
-    if (!payload) throw new Error('Failed to get payload from Google token');
+    if (!payload) {
+      console.error('Failed to get payload from Google token');
+      throw new Error('Failed to get payload from Google token');
+    }
 
     const { email, name, picture } = payload;
+    console.log('Google OAuth payload received for email:', email);
 
     // Check if the user already exists in the database
     let { data: user, error: fetchError } = await supabase
@@ -174,11 +190,13 @@ app.post('/google', async (c: AppContext) => {
       .single();
 
     if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Database error checking existing user:', fetchError.message);
       throw new Error('Database error checking existing user');
     }
 
     // If the user doesn't exist, create a new user
     if (!user) {
+      console.log('Creating new user for email:', email);
       const hashedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
 
       const { data: newUser, error: insertError } = await supabase
@@ -194,12 +212,16 @@ app.post('/google', async (c: AppContext) => {
         .select()
         .single();
 
-      if (insertError) throw new Error('Failed to create user');
+      if (insertError) {
+        console.error('Failed to create user:', insertError.message);
+        throw new Error('Failed to create user');
+      }
       user = newUser;
     }
 
     // Generate a JWT for the authenticated user
-    const token = generateToken(user, c.env.JWT_SECRET);
+    const token = generateToken(user);
+    console.log('Google authentication successful for user:', email);
 
     return c.json({
       message: 'Google authentication successful',
@@ -213,6 +235,7 @@ app.post('/google', async (c: AppContext) => {
       token,
     });
   } catch (error) {
+    console.error('Google authentication failed:', error);
     return c.json({ 
       error: 'Google authentication failed',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -223,7 +246,7 @@ app.post('/google', async (c: AppContext) => {
 // Password reset request
 app.post('/reset-password/request', async (c: AppContext) => {
   const { email } = await c.req.json();
-  const supabase = getSupabase(c.env);
+  console.log('Password reset request received for email:', email);
 
   try {
     // Check if the user exists in the database
@@ -232,21 +255,29 @@ app.post('/reset-password/request', async (c: AppContext) => {
       .select('*')
       .eq('email', email);
 
-    if (supabaseError) return c.json({ error: 'Database error' }, 500);
-    if (!users?.length) return c.json({ error: 'User not found' }, 404);
+    if (supabaseError) {
+      console.error('Database error:', supabaseError.message);
+      return c.json({ error: 'Database error' }, 500);
+    }
+    if (!users?.length) {
+      console.error('User not found:', email);
+      return c.json({ error: 'User not found' }, 404);
+    }
 
     // Generate a reset token and code
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     resetTokens.set(resetToken, { email, code: resetCode, timestamp: Date.now() });
+    console.log('Reset token generated for email:', email);
 
     // Send the reset code via email
     const emailSubject = 'Password Reset Request';
     const emailText = `Your password reset code is: ${resetCode}`;
-    await sendEmail(c.env, email, emailSubject, emailText);
+    await sendEmail(email, emailSubject, emailText);
 
     return c.json({ token: resetToken });
   } catch (error) {
+    console.error('Server error during password reset request:', error);
     return c.json({ error: 'Server error' }, 500);
   }
 });
@@ -256,22 +287,27 @@ const authenticateToken = async (c: AppContext, next: () => Promise<void>) => {
   const authHeader = c.req.header('Authorization');
   const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) return c.json({ error: 'No token provided' }, 401);
+  if (!token) {
+    console.error('No token provided');
+    return c.json({ error: 'No token provided' }, 401);
+  }
 
   try {
     // Verify the JWT and set the user in the context
-    const user = jwt.verify(token, c.env.JWT_SECRET) as User;
+    const user = jwt.verify(token, process.env.JWT_SECRET!) as User;
     c.set('user', user);
+    console.log('User authenticated:', user.email);
     await next();
   } catch (error) {
+    console.error('Invalid or expired token:', error);
     return c.json({ error: 'Invalid or expired token' }, 403);
   }
 };
 
 // Get user details
 app.get('/me', authenticateToken, async (c: AppContext) => {
-  const supabase = getSupabase(c.env);
   const user = c.get('user'); // Get the authenticated user from the context
+  console.log('Fetching user details for:', user.email);
 
   try {
     // Fetch the user details from the database
@@ -281,13 +317,18 @@ app.get('/me', authenticateToken, async (c: AppContext) => {
       .eq('id', user.id)
       .single();
 
-    if (error) return c.json({ error: 'User not found' }, 404);
+    if (error) {
+      console.error('User not found:', error.message);
+      return c.json({ error: 'User not found' }, 404);
+    }
 
     // Remove the password from the response
     const { password, ...userWithoutPassword } = data;
+    console.log('User details fetched successfully for:', user.email);
 
     return c.json({ user: userWithoutPassword });
   } catch (error) {
+    console.error('Internal server error fetching user details:', error);
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
