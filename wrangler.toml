@@ -1,0 +1,14 @@
+name = "your-backend-project"
+main = "src/app.ts"
+compatibility_date = "2024-01-25"
+
+[vars]
+SUPABASE_URL = "https://qzcbpkwbtpdwhezbrimi.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6Y2Jwa3didHBkd2hlemJyaW1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc1MzY0ODYsImV4cCI6MjA1MzExMjQ4Nn0._FXqebI8vSAKcYkKnoUDtTwb0E9pgOfPZ4xBjGy35yE"
+NEXT_PUBLIC_APP_URL = "http://localhost:5173/dashboard"
+GOOGLE_OAUTH_CLIENT_ID = "376370205885-9do1f6lrphudplg18rd8ekgcars0jc42.apps.googleusercontent.com"
+GOOGLE_OAUTH_CLIENT_SECRET = "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"
+GOOGLE_REDIRECT_URI = "http://localhost:5173/dashboard"
+JWT_SECRET = "1994af8775e78d5c1da9a67ce8a65888dd126de0b960a530a057141f30564cbc2d228521b12b43a9a73b14aede6596e3e3958b3b1ff611184558f84286e91c89"
+SENDGRID_API_KEY = "your-sendgrid-api-key"
+SENDGRID_FROM_EMAIL = "bcos.assistant@gmail.com"
